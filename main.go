@@ -7,7 +7,23 @@ import (
   "bytes"
   "context"
   "io"
+  "regexp"
 )
+
+/**
+see http://www.golangprograms.com/remove-duplicate-values-from-slice.html
+*/
+func unique(intSlice []string) []string {
+    keys := make(map[string]bool)
+    list := []string{}
+    for _, entry := range intSlice {
+        if _, value := keys[entry]; !value {
+            keys[entry] = true
+            list = append(list, entry)
+        }
+    }
+    return list
+}
 
 /**
 prepare a string->string map that will be serialized to the json search document
@@ -93,7 +109,23 @@ func find_records(esclient *elasticsearch6.Client, indexName string, queryBuffer
   return &rtn, nil
 }
 
+func extract_ids(re *regexp.Regexp, records *[]Record) ([]string) {
+  var rtn []string
+
+  for _, rec := range *records {
+    match := re.FindStringSubmatch(rec.MessageDetail)
+    if match != nil {
+      rtn = append(rtn, match[1])
+    } else {
+      log.Printf("No match on %s", rec.MessageDetail)
+    }
+  }
+  return rtn
+}
+
 func main() {
+  pageSize:=5
+  startAt:=0
   //set ELASTICSEARCH_URL to say where to connect to
   esclient, eserr := elasticsearch6.NewDefaultClient()
 
@@ -113,10 +145,27 @@ func main() {
   log.Printf("%s", esinfo)
   queryBuffer := make_query()
 
-  records, err := find_records(esclient,"logstash-2019.07.11", queryBuffer, 0,50)
+  var atRecord = startAt
+  var uniqueList []string
 
-  log.Printf("Got %d records: ", len(*records))
-  for _,rec := range *records {
-    log.Printf("%s", rec)
+  for {
+    records, _ := find_records(esclient,"logstash-2019.07.11", queryBuffer, atRecord, pageSize)
+
+    if(len(*records)==0){
+      break
+    }
+
+    re := regexp.MustCompile("notification=(\\w{2}-\\d+)")
+
+    log.Printf("Got %d records: ", len(*records))
+
+    id_list := extract_ids(re, records)
+    tempList := append(uniqueList, id_list...)
+    uniqueList = unique(tempList)
+    log.Printf("Found ids: %s", uniqueList)
+    atRecord+=pageSize
   }
+  // for _,rec := range *records {
+  //   log.Printf("%s", rec)
+  // }
 }
