@@ -6,55 +6,14 @@ import (
   "log"
   "bytes"
   "context"
+  "io"
 )
 
-type Record struct  {
-  ClassName string `json:"class"`
-  Hostname string `json:"host.name"`
-  Level string `json:"level"`
-  Message string `json:"message"`
-  MessageDetail string `json:"message_detail"`
-}
-
-type Hit struct {
-  Index string `json:"_index"`
-  Type string `json:"_type"`
-  Id string `json:"_id"`
-  Score float64 `json:"_score"`
-  Source Record `json:"_source"`
-}
-
-type Hits struct {
-  Total int `json:"total"`
-  MaxScore float64 `json:"max_score"`
-  Hits []Hit `json:"hits"`
-}
-
-type Response struct {
-  Took int `json:"took"`
-  TimedOut bool `json:"timed_out"`
-  Shards json.RawMessage `json:"_shards"`
-  Hits Hits `json:"hits"`
-}
-
-
-/*
-{
-	"query": {
-	"bool": {
-		"must": [
-			{
-				"match": {"message_detail": "NETWORK_FAILURE"}
-			}
-		],
-		"filter": {
-			"term": { "fields.type": "vidispine" }
-		}
-	}
-}
-}
+/**
+prepare a string->string map that will be serialized to the json search document
+and serialize it
 */
-func find_records(esclient *elasticsearch6.Client, indexName string) (*[]Record, error) {
+func make_query() (bytes.Buffer) {
   var buf bytes.Buffer
 
   query := map[string]interface{}{
@@ -78,22 +37,40 @@ func find_records(esclient *elasticsearch6.Client, indexName string) (*[]Record,
   if encodeErr != nil {
     log.Fatalf("Could not encode query: ", encodeErr)
   }
+  return buf
+}
 
+/**
+deserialize a returned buffer to a string->any map
+*/
+func generic_decode(reader io.ReadCloser) (*map[string]interface{}, error) {
+  var e map[string]interface{}
+  err := json.NewDecoder(reader).Decode(&e)
+
+  if err == nil {
+    return &e, nil
+  } else {
+    return nil, err
+  }
+}
+
+func find_records(esclient *elasticsearch6.Client, indexName string, queryBuffer bytes.Buffer, offset int, limit int) (*[]Record, error) {
   result, err := esclient.Search(
     esclient.Search.WithContext(context.Background()),
     esclient.Search.WithIndex(indexName),
-    esclient.Search.WithBody(&buf),
+    esclient.Search.WithBody(&queryBuffer),
     esclient.Search.WithTrackTotalHits(true),
+    esclient.Search.WithFrom(offset),
+    esclient.Search.WithSize(limit),
   )
+
   if err != nil {
     return nil, err
   }
   defer result.Body.Close()
 
   if result.IsError() {
-    var e map[string]interface{}
-
-    err := json.NewDecoder(result.Body).Decode(&e)
+    e, err := generic_decode(result.Body)
     if err != nil {
       log.Fatalf("Error parsing response body: %s", err)
     } else {
@@ -101,7 +78,6 @@ func find_records(esclient *elasticsearch6.Client, indexName string) (*[]Record,
     }
   }
 
-  //log.Printf("%s", result)
   var resp Response
   decodeErr := json.NewDecoder(result.Body).Decode(&resp)
   if decodeErr != nil {
@@ -111,7 +87,6 @@ func find_records(esclient *elasticsearch6.Client, indexName string) (*[]Record,
   log.Printf("Got %d results: ", resp.Hits.Total)
   var rtn []Record
   for _,h := range resp.Hits.Hits {
-    //log.Printf("\t%s", h.Source)
     rtn = append(rtn, h.Source)
   }
 
@@ -119,7 +94,6 @@ func find_records(esclient *elasticsearch6.Client, indexName string) (*[]Record,
 }
 
 func main() {
-
   //set ELASTICSEARCH_URL to say where to connect to
   esclient, eserr := elasticsearch6.NewDefaultClient()
 
@@ -137,8 +111,9 @@ func main() {
   }
 
   log.Printf("%s", esinfo)
+  queryBuffer := make_query()
 
-  records, err := find_records(esclient,"logstash-2019.07.11")
+  records, err := find_records(esclient,"logstash-2019.07.11", queryBuffer, 0,50)
 
   log.Printf("Got %d records: ", len(*records))
   for _,rec := range *records {
