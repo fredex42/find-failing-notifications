@@ -1,3 +1,4 @@
 find-failing-notifications
 *.zip
 logstash-*/
+*.linux??

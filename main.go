@@ -51,7 +51,7 @@ func make_query() (bytes.Buffer) {
 
   encodeErr := json.NewEncoder(&buf).Encode(query)
   if encodeErr != nil {
-    log.Fatalf("Could not encode query: ", encodeErr)
+    log.Fatalf("Could not encode query: %s", encodeErr)
   }
   return buf
 }
@@ -90,7 +90,7 @@ func find_records(esclient *elasticsearch6.Client, indexName string, queryBuffer
     if err != nil {
       log.Fatalf("Error parsing response body: %s", err)
     } else {
-      log.Fatalf("ES reported error: %s", e)
+      log.Fatalf("ES reported error: %#v", e)
     }
   }
 
@@ -165,7 +165,5 @@ func main() {
     log.Printf("Found ids: %s", uniqueList)
     atRecord+=pageSize
   }
-  // for _,rec := range *records {
-  //   log.Printf("%s", rec)
-  // }
+
 }
