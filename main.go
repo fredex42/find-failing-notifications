@@ -2,6 +2,7 @@ package main
 
 import (
   elasticsearch6 "github.com/elastic/go-elasticsearch/v6"
+  "github.com/elastic/go-elasticsearch/v6/esapi"
   "encoding/json"
   "log"
   "bytes"
@@ -9,6 +10,7 @@ import (
   "io"
   "os"
   "regexp"
+  "time"
 )
 
 /**
@@ -71,18 +73,37 @@ func generic_decode(reader io.ReadCloser) (*map[string]interface{}, error) {
   }
 }
 
-func find_records(esclient *elasticsearch6.Client, indexName string, queryBuffer bytes.Buffer, offset int, limit int) (*[]Record, error) {
-  result, err := esclient.Search(
-    esclient.Search.WithContext(context.Background()),
-    esclient.Search.WithIndex(indexName),
-    esclient.Search.WithBody(&queryBuffer),
-    esclient.Search.WithTrackTotalHits(true),
-    esclient.Search.WithFrom(offset),
-    esclient.Search.WithSize(limit),
+func cleanup(esclient *elasticsearch6.Client, scrollId *string) (error){
+  _, err := esclient.ClearScroll(
+    esclient.ClearScroll.WithContext(context.Background()),
+    esclient.ClearScroll.WithScrollID(*scrollId),
   )
+  return err
+}
+
+func find_records(esclient *elasticsearch6.Client, indexName string, queryBuffer bytes.Buffer, scrollId *string, offset int, limit int) (*[]Record, *string, error) {
+  var result *esapi.Response
+  var err error
+  if scrollId==nil {
+    result, err = esclient.Search(
+      esclient.Search.WithContext(context.Background()),
+      esclient.Search.WithIndex(indexName),
+      esclient.Search.WithBody(&queryBuffer),
+      esclient.Search.WithScroll(time.Duration(15)*time.Minute),
+      esclient.Search.WithTrackTotalHits(true),
+      esclient.Search.WithFrom(offset),
+      esclient.Search.WithSize(limit),
+    )
+  } else {
+    result, err = esclient.Scroll(
+      esclient.Scroll.WithContext(context.Background()),
+      esclient.Scroll.WithScrollID(*scrollId),
+      esclient.Scroll.WithScroll(time.Duration(15)*time.Minute),
+    )
+  }
 
   if err != nil {
-    return nil, err
+    return nil, nil, err
   }
   defer result.Body.Close()
 
@@ -107,7 +128,7 @@ func find_records(esclient *elasticsearch6.Client, indexName string, queryBuffer
     rtn = append(rtn, h.Source)
   }
 
-  return &rtn, nil
+  return &rtn, &(resp.ScrollId), nil
 }
 
 func extract_ids(re *regexp.Regexp, records *[]Record) ([]string) {
@@ -125,7 +146,7 @@ func extract_ids(re *regexp.Regexp, records *[]Record) ([]string) {
 }
 
 func main() {
-  pageSize:=5
+  pageSize:=500
   startAt:=0
 
   vsUri := os.Getenv("VIDISPINE_URI")
@@ -162,12 +183,14 @@ func main() {
 
   var atRecord = startAt
   var uniqueList []string
+  var scrollId *string
+  scrollId = nil
 
   vsComm := NewVSCommunicator(vsUri, vsUser, vsPasswd)
 
   for {
-    records, _ := find_records(esclient,indexName, queryBuffer, atRecord, pageSize)
-
+    records, newScrollId, _ := find_records(esclient,indexName, queryBuffer, scrollId, atRecord, pageSize)
+    scrollId = newScrollId
     if(len(*records)==0){
       break
     }
@@ -179,8 +202,12 @@ func main() {
     id_list := extract_ids(re, records)
     tempList := append(uniqueList, id_list...)
     uniqueList = unique(tempList)
-    log.Printf("Found ids: %s", uniqueList)
+    log.Printf("Found %d ids: %s", len(uniqueList), uniqueList)
     atRecord+=pageSize
+  }
+
+  if scrollId!=nil {
+    cleanup(esclient, scrollId)
   }
 
   for _, uniqId := range uniqueList {
@@ -190,7 +217,11 @@ func main() {
       log.Fatalf("Could not retrieve information about %s from server: %s", uniqId, err)
     }
 
-    log.Printf("%s: %s", uniqId, noti.getInfoString())
+    if noti != nil {
+      log.Printf("%s: %s", uniqId, noti.getInfoString())
+    } else {
+      log.Printf("%s: Not found", uniqId)
+    }
   }
 
   log.Printf("Run completed")

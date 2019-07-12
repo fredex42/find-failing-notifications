@@ -57,7 +57,9 @@ returns a string of the xml NotificationDocument if one exists, nil if it does n
 on a 503/504 will sleep for 3s and retry.
 */
 func (comm *VSCommunicator) FindSpecificNotification(notificationClass string, notificationId string)(*string, error)  {
-  req, reqErr := http.NewRequest("GET", comm.URI + "/API/" + notificationClass + "/notification/" + notificationId, nil)
+  reqUri := comm.URI + "/API/" + notificationClass + "/notification/" + notificationId
+  log.Printf("Requesting data from %s", reqUri)
+  req, reqErr := http.NewRequest("GET", reqUri, nil)
 
   if reqErr != nil {
     return nil, reqErr
@@ -97,7 +99,7 @@ looks over all notification classes to try to find a matching notification.
 returns the first one that matches, or nil if nothing found.
 */
 func (comm *VSCommunicator) FindAnyNotification(notificationId string)(*string, error) {
-  possibleClasses := []string{"item","collection","shape","document"}
+  possibleClasses := []string{"item","collection","job","storage","storage/file","quota","group","document","deletion-lock"}
 
   for _,cls := range possibleClasses {
     xmldoc, err := comm.FindSpecificNotification(cls, notificationId)

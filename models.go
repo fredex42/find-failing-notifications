@@ -30,6 +30,7 @@ type Response struct {
   TimedOut bool `json:"timed_out"`
   Shards json.RawMessage `json:"_shards"`
   Hits Hits `json:"hits"`
+  ScrollId string `json:"_scroll_id"`
 }
 
 type HttpNotification struct {
@@ -67,10 +68,19 @@ type Action struct {
 
 type ShapeTrigger struct {
   Modify *struct{} `xml:"modify"`
+
+}
+
+type JobTrigger struct {
+  Update *struct{} `xml:"update"`
+  Stop *struct{} `xml:"stop"`
+  Finished *struct{} `xml:"finished"`
+  Fail *struct{} `xml:"fail"`
+  Create *struct{} `xml:"create"`
 }
 
 type Trigger struct {
-  Shape ShapeTrigger `xml:"shape"`
+  RawData string `xml:",innerxml"`
 }
 
 type NotificationDocument struct {
