@@ -29,6 +29,11 @@ differently you'll have to update this.
 ## How to build
 You'll need Go v1.11 or higher installed (or run in a Docker container) in order to compile the software.
 
+If you're not used to Go, remember:
+- it compiles to statically linked native code. Just copy the binary and run - no need to set
+up a runtime environment or install libraries
+- so you only need Go installed to compile, not to run
+- it automatically builds for your environment, be it Linux, Windows, Mac, AIX, Solaris, Hurd, etc. etc.
 Simply check out the repo and run:
 
 ```
