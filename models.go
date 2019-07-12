@@ -1,6 +1,7 @@
 package main
 
 import "encoding/json"
+import "fmt"
 
 type Record struct  {
   ClassName string `json:"class"`
@@ -75,4 +76,20 @@ type Trigger struct {
 type NotificationDocument struct {
   Action Action `xml:"action"`
   Trigger Trigger `xml:"trigger"`
+}
+
+func (n *NotificationDocument) getInfoString ()(string) {
+  if &(n.Action.Http)!=nil {
+    return fmt.Sprintf("HTTP notification on %#v, call out to %s %s in %s format.", n.Trigger, n.Action.Http.Method, n.Action.Http.Url, n.Action.Http.ContentType)
+  } else if &(n.Action.EJB)!=nil {
+    return fmt.Sprintf("EJB notification on %#v", n.Trigger)
+  } else if &(n.Action.JMS)!=nil {
+    return fmt.Sprintf("JMS notification on %#v", n.Trigger)
+  } else if &(n.Action.Javascript)!=nil {
+    return fmt.Sprintf("Javascript notification on %#v", n.Trigger)
+  } else if &(n.Action.SQS)!=nil {
+    return fmt.Sprintf("SQS notification on %#v", n.Trigger)
+  } else {
+    return fmt.Sprintf("No action parameter on %#v", n.Trigger)
+  }
 }

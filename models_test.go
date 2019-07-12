@@ -2,7 +2,6 @@ package main
 
 import (
   "encoding/xml"
-  "log"
   "testing"
 )
 

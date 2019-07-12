@@ -7,6 +7,7 @@ import (
   "bytes"
   "context"
   "io"
+  "os"
   "regexp"
 )
 
@@ -126,6 +127,20 @@ func extract_ids(re *regexp.Regexp, records *[]Record) ([]string) {
 func main() {
   pageSize:=5
   startAt:=0
+
+  vsUri := os.Getenv("VIDISPINE_URI")
+  vsUser := os.Getenv("VIDISPINE_USER")
+  vsPasswd := os.Getenv("VIDISPINE_PASSWD")
+  indexName := os.Getenv("INDEX_NAME")
+
+  if indexName == "" {
+    log.Fatalf("Please set a Logstash index to query with the INDEX_NAME parameter")
+  }
+
+  if vsUri == "" || vsUser=="" || vsPasswd=="" {
+    log.Printf("You should set VIDISPINE_URI, VIDISPINE_USER and VIDISPINE_PASSWD in order to get notification details from the server")
+  }
+
   //set ELASTICSEARCH_URL to say where to connect to
   esclient, eserr := elasticsearch6.NewDefaultClient()
 
@@ -148,8 +163,10 @@ func main() {
   var atRecord = startAt
   var uniqueList []string
 
+  vsComm := NewVSCommunicator(vsUri, vsUser, vsPasswd)
+
   for {
-    records, _ := find_records(esclient,"logstash-2019.07.11", queryBuffer, atRecord, pageSize)
+    records, _ := find_records(esclient,indexName, queryBuffer, atRecord, pageSize)
 
     if(len(*records)==0){
       break
@@ -166,4 +183,15 @@ func main() {
     atRecord+=pageSize
   }
 
+  for _, uniqId := range uniqueList {
+    noti, err := vsComm.FindAndParseAnyNotification(uniqId)
+
+    if err != nil {
+      log.Fatalf("Could not retrieve information about %s from server: %s", uniqId, err)
+    }
+
+    log.Printf("%s: %s", uniqId, noti.getInfoString())
+  }
+
+  log.Printf("Run completed")
 }
