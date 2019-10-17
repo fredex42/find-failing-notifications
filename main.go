@@ -85,6 +85,21 @@ func cleanup(esclient *elasticsearch6.Client, scrollId *string) error {
 	return err
 }
 
+/**
+gets the next page of results from ES.
+the "scrolling" api is used so that all pages come from a consistent snapshot in the index.
+arguments:
+ - elasticsearch client
+ - index name to query
+ - a bytes.Buffer containing the json of the query to execute
+ - pointer to a scroll ID to pick up where the last iteration left off
+ - integer position to start at
+ - limit of the number of records to fetch
+returns:
+ - pointer to a list of Record objects
+ - pointer to a string of the scroll ID to use for the next iteration
+ - any error that occurs
+*/
 func find_records(esclient *elasticsearch6.Client, indexName string, queryBuffer bytes.Buffer, scrollId *string, offset int, limit int) (*[]Record, *string, error) {
 	var result *esapi.Response
 	var err error
@@ -126,7 +141,9 @@ func find_records(esclient *elasticsearch6.Client, indexName string, queryBuffer
 		log.Fatalf("Error parsing response body: %s", decodeErr)
 	}
 
-	log.Printf("Got %d results: ", resp.Hits.Total)
+	if scrollId == nil {
+		log.Printf("Got %d results: ", resp.Hits.Total)
+	}
 	var rtn []Record
 	for _, h := range resp.Hits.Hits {
 		rtn = append(rtn, h.Source)
@@ -158,6 +175,7 @@ func main() {
 	vsPasswd := os.Getenv("VIDISPINE_PASSWD")
 	indexName := os.Getenv("INDEX_NAME")
 	environment := os.Getenv("ENVIRONMENT")
+	output := os.Getenv("OUTPUT_PATH")
 
 	if indexName == "" {
 		log.Fatalf("Please set a Logstash index to query with the INDEX_NAME parameter")
@@ -193,6 +211,9 @@ func main() {
 
 	vsComm := NewVSCommunicator(vsUri, vsUser, vsPasswd)
 
+	log.Printf("Scanning logs, this may take a while...")
+	re := regexp.MustCompile("notification=(\\w{2}-\\d+)")
+
 	for {
 		records, newScrollId, _ := find_records(esclient, indexName, queryBuffer, scrollId, atRecord, pageSize)
 		scrollId = newScrollId
@@ -200,14 +221,12 @@ func main() {
 			break
 		}
 
-		re := regexp.MustCompile("notification=(\\w{2}-\\d+)")
-
-		log.Printf("Got %d records: ", len(*records))
+		//log.Printf("Got %d records: ", len(*records))
 
 		id_list := extract_ids(re, records)
 		tempList := append(uniqueList, id_list...)
 		uniqueList = unique(tempList)
-		log.Printf("Found %d ids: %s", len(uniqueList), uniqueList)
+		//log.Printf("Found %d ids: %s", len(uniqueList), uniqueList)
 		atRecord += pageSize
 	}
 
@@ -215,8 +234,10 @@ func main() {
 		cleanup(esclient, scrollId)
 	}
 
+	csvOutput := make([]CsvData, len(uniqueList))
+	var i = 0
 	for _, uniqId := range uniqueList {
-		noti, err := vsComm.FindAndParseAnyNotification(uniqId)
+		noti, notiUrl, err := vsComm.FindAndParseAnyNotification(uniqId)
 
 		if err != nil {
 			log.Fatalf("Could not retrieve information about %s from server: %s", uniqId, err)
@@ -224,10 +245,16 @@ func main() {
 
 		if noti != nil {
 			log.Printf("%s: %s", uniqId, noti.getInfoString())
+			csvOutput[i] = CsvData{noti, *notiUrl}
+			i += 1
 		} else {
 			log.Printf("%s: Not found", uniqId)
 		}
 	}
 
+	writeErr := WriteToCsv(output, &csvOutput)
+	if writeErr != nil {
+		log.Printf("Could not write output file :(")
+	}
 	log.Printf("Run completed")
 }
